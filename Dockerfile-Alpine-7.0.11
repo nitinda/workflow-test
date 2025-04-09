@@ -1,0 +1,46 @@
+# syntax=docker/dockerfile:1
+ARG MAJOR_VERSION=6.0
+ARG ZBX_VERSION=${MAJOR_VERSION}.4
+ARG BUILD_BASE_IMAGE=zabbix-server-pgsql:alpine-${ZBX_VERSION}
+ARG CHAMBER_VERSION=2.10.12
+ARG ALPINE_VERSION=3.15.11
+
+### Builder Steps
+
+FROM alpine:${ALPINE_VERSION} AS builder
+USER root
+ARG CHAMBER_VERSION=2.14.0
+
+RUN apk --upgrade --no-cache add curl && \
+    curl -Ls https://github.com/segmentio/chamber/releases/download/v${CHAMBER_VERSION}/chamber-v${CHAMBER_VERSION}-linux-amd64 > chamber-linux-amd64 && \
+    chmod +x chamber-linux-amd64 && \
+    mv chamber-linux-amd64 /usr/local/bin/chamber
+
+### Build Steps
+FROM zabbix/${BUILD_BASE_IMAGE}
+
+ARG MAJOR_VERSION
+ARG ZBX_VERSION
+ARG ZBX_SOURCES=https://git.zabbix.com/scm/zbx/zabbix.git
+ARG CHAMBER_VERSION=2.14.0
+ARG AWS_REGION=eu-west-2
+
+LABEL org.opencontainers.image.authors="Opticore TA" \
+      org.opencontainers.image.description="Zabbix server with PostgreSQL database support" \
+      org.opencontainers.image.documentation="https://www.zabbix.com/documentation/${MAJOR_VERSION}/manual/installation/containers" \
+      org.opencontainers.image.licenses="AGPL v3.0" \
+      org.opencontainers.image.source="${ZBX_SOURCES}" \
+      org.opencontainers.image.title="Zabbix server (PostgreSQL)" \
+      org.opencontainers.image.url="https://zabbix.com/" \
+      org.opencontainers.image.vendor="Zabbix SIA" \
+      org.opencontainers.image.version="${ZBX_VERSION}"
+
+STOPSIGNAL SIGTERM
+
+COPY --from=builder ["/usr/local/bin/chamber", "/usr/local/bin/chamber"]
+
+ENTRYPOINT ["chamber", "exec", "zabbix-db", "zabbix-server", "--", "/sbin/tini", "--", "/usr/bin/docker-entrypoint.sh"]
+
+USER 1000
+
+CMD ["/usr/sbin/zabbix_server", "--foreground", "-c", "/etc/zabbix/zabbix_server.conf"]
